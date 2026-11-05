@@ -82,8 +82,12 @@ def scrape_and_generate_ics():
             utc_start = local_start.astimezone(utc_tz)
             utc_end = utc_start + timedelta(hours=1)
 
+            # Clean up event title to start directly at 'BOCA'
+            boca_index = row_text.upper().find("BOCA")
+            clean_summary = row_text[boca_index:].strip() if boca_index != -1 else row_text
+
             events.append({
-                "summary": row_text,
+                "summary": clean_summary,
                 "start": utc_start,
                 "end": utc_end,
             })
@@ -99,13 +103,13 @@ def scrape_and_generate_ics():
   with open(ics_filename, "w", encoding="utf-8") as f:
     f.write("BEGIN:VCALENDAR\n")
     f.write("VERSION:2.0\n")
-    f.write("PRODID:-//Boca Soccer UTC Shifted Scraper//EN\n")
+    f.write("PRODID:-//Boca Soccer Clean Title Scraper//EN\n")
 
     for i, ev in enumerate(unique_events.values()):
       start_str = ev["start"].strftime("%Y%m%dT%H%M%SZ")
       end_str = ev["end"].strftime("%Y%m%dT%H%M%SZ")
       f.write("BEGIN:VEVENT\n")
-      f.write(f"UID:boca-utc-game-{i}-{start_str}@sisc\n")
+      f.write(f"UID:boca-clean-game-{i}-{start_str}@sisc\n")
       f.write(f"DTSTAMP:{datetime.now(utc_tz).strftime('%Y%m%dT%H%M%SZ')}\n")
       f.write(f"DTSTART:{start_str}\n")
       f.write(f"DTEND:{end_str}\n")
@@ -117,7 +121,7 @@ def scrape_and_generate_ics():
       f.write("END:VEVENT\n")
 
     f.write("END:VCALENDAR\n")
-  print(f"Generated {ics_filename} with UTC-shifted times.")
+  print(f"Generated {ics_filename} with clean titles.")
 
 
 if __name__ == "__main__":
