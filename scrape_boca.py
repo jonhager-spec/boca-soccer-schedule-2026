@@ -32,13 +32,17 @@ def scrape_and_generate_ics():
         continue
       page_soup = BeautifulSoup(res.text, "html.parser")
 
+      # Walk through the text line by line, keeping track of the last seen valid date
       text_content = page_soup.get_text(separator="\n")
       lines = text_content.split("\n")
 
       current_date = None
       for line in lines:
         line = line.strip()
-        # Look for date patterns like MM/DD/YY or MM/DD/YYYY
+        if not line:
+          continue
+
+        # Look for date headers in the text (e.g., 11/5/26, 10/31/2026, etc.)
         date_match = re.search(
             r"\b(0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])[-/](\d{2,4})\b", line
         )
@@ -46,13 +50,17 @@ def scrape_and_generate_ics():
           date_str = date_match.group(0)
           for fmt in ("%m/%d/%y", "%m-%d-%y", "%m/%d/%Y", "%m-%d-%Y"):
             try:
-              current_date = datetime.strptime(date_str, fmt)
+              parsed = datetime.strptime(date_str, fmt)
+              # Handle 2-digit year conversion if needed
+              if parsed.year < 2000:
+                parsed = parsed.replace(year=parsed.year + 2000)
+              current_date = parsed
               break
             except ValueError:
               continue
 
-        # Look for BOCA matches
-        if target_string.lower() in line.lower() and len(line) < 150:
+        # If we find BOCA and have a valid date context, extract the game
+        if target_string.lower() in line.lower():
           time_match = re.search(
               r"\b(1[0-2]|0?[1-9]):([0-5][0-9])\s*(AM|PM|am|pm)\b", line
           )
@@ -70,11 +78,14 @@ def scrape_and_generate_ics():
                 "start": game_start,
                 "end": game_end,
             })
-            print(f"  [MATCHED] {line} on {game_start}")
+            print(
+                f"  [FOUND] {line} -> Date Assigned: {game_start.strftime('%Y-%m-%d %I:%M %p')}"
+            )
+
     except Exception as e:
       print(f"Error reading {link}: {e}")
 
-  # Deduplicate events
+  # Deduplicate events based on exact summary and start time
   unique_events = {}
   for ev in events:
     key = (ev["summary"], ev["start"])
@@ -95,11 +106,13 @@ def scrape_and_generate_ics():
       f.write(f"DTSTART:{start_str}\n")
       f.write(f"DTEND:{end_str}\n")
       f.write(f"SUMMARY:{ev['summary']}\n")
-      f.write(f"DESCRIPTION:Imported from Syracuse Indoor Sports Center\n")
+      f.write(
+          f"DESCRIPTION:Syracuse Indoor Sports Center - Boca Schedule\n"
+      )
       f.write("END:VEVENT\n")
 
     f.write("END:VCALENDAR\n")
-  print(f"Generated {ics_filename} with {len(unique_events)} events.")
+  print(f"Generated {ics_filename} with {len(unique_events)} unique events.")
 
 
 if __name__ == "__main__":
