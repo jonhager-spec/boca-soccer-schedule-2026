@@ -18,19 +18,12 @@ def scrape_and_generate_ics():
   soup = BeautifulSoup(response.text, "html.parser")
   sheet_ids = set()
 
-  # Automatically find all links on the page pointing to Google Sheets
   for a_tag in soup.find_all("a", href=True):
     href = a_tag["href"]
-    # Look for Google Docs / Sheets URL patterns
     if "docs.google.com/spreadsheets" in href:
-      # Extract the unique Spreadsheet ID from the URL using Regex
       match = re.search(r"/d/([a-zA-Z0-9-_]+)", href)
       if match:
-        s_id = match.group(1)
-        sheet_ids.add(s_id)
-        print(f"  [DISCOVERED SHEET LINK] -> ID: {s_id}")
-
-  print(f"Found {len(sheet_ids)} total spreadsheet links to scan.\n")
+        sheet_ids.add(match.group(1))
 
   events = []
   target_string = "BOCA"
@@ -38,7 +31,6 @@ def scrape_and_generate_ics():
   for s_id in sheet_ids:
     csv_url = f"https://docs.google.com/spreadsheets/d/{s_id}/export?format=csv"
     try:
-      print(f"Downloading data for sheet {s_id}...")
       res = requests.get(csv_url, timeout=10)
       if res.status_code != 200:
         continue
@@ -51,7 +43,6 @@ def scrape_and_generate_ics():
         if not row_text:
           continue
 
-        # Look for a date in the row
         date_match = re.search(
             r"\b(0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])[-/](\d{2,4})\b",
             row_text,
@@ -68,7 +59,6 @@ def scrape_and_generate_ics():
             except ValueError:
               continue
 
-        # Check for BOCA games
         if target_string.lower() in row_text.lower():
           time_match = re.search(
               r"\b(1[0-2]|0?[1-9]):([0-5][0-9])\s*(AM|PM|am|pm)\b", row_text
@@ -87,15 +77,9 @@ def scrape_and_generate_ics():
                 "start": game_start,
                 "end": game_end,
             })
-            print(
-                f"    -> [FOUND MATCH] {row_text} on"
-                f" {game_start.strftime('%Y-%m-%d %I:%M %p')}"
-            )
-
     except Exception as e:
       print(f"Error processing sheet {s_id}: {e}")
 
-  # Deduplicate events
   unique_events = {}
   for ev in events:
     key = (ev["summary"], ev["start"])
@@ -105,16 +89,35 @@ def scrape_and_generate_ics():
   with open(ics_filename, "w", encoding="utf-8") as f:
     f.write("BEGIN:VCALENDAR\n")
     f.write("VERSION:2.0\n")
-    f.write("PRODID:-//Boca Soccer Auto-Discover Scraper//EN\n")
+    f.write("PRODID:-//Boca Soccer Timezone Fixed Scraper//EN\n")
+    # Define America/New_York timezone rules inside the ICS so Google maps local times perfectly
+    f.write("BEGIN:VTIMEZONE\n")
+    f.write("TZID:America/New_York\n")
+    f.write("BEGIN:STANDARD\n")
+    f.write("DTSTART:20071104T020000\n")
+    f.write("RRULE:FREQ=YEARLY;BYDAY=1SU;BYMONTH=11\n")
+    f.write("TZOFFSETFROM:-0400\n")
+    f.write("TZOFFSETTO:-0500\n")
+    f.write("TZNAME:EST\n")
+    f.write("END:STANDARD\n")
+    f.write("BEGIN:DAYLIGHT\n")
+    f.write("DTSTART:20070311T020000\n")
+    f.write("RRULE:FREQ=YEARLY;BYDAY=2SU;BYMONTH=3\n")
+    f.write("TZOFFSETFROM:-0500\n")
+    f.write("TZOFFSETTO:-0400\n")
+    f.write("TZNAME:EDT\n")
+    f.write("END:DAYLIGHT\n")
+    f.write("END:VTIMEZONE\n")
 
     for i, ev in enumerate(unique_events.values()):
       start_str = ev["start"].strftime("%Y%m%dT%H%M%S")
       end_str = ev["end"].strftime("%Y%m%dT%H%M%S")
       f.write("BEGIN:VEVENT\n")
-      f.write(f"UID:boca-auto-game-{i}-{start_str}@sisc\n")
+      f.write(f"UID:boca-tz-game-{i}-{start_str}@sisc\n")
       f.write(f"DTSTAMP:{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}\n")
-      f.write(f"DTSTART:{start_str}\n")
-      f.write(f"DTEND:{end_str}\n")
+      # Explicitly attach the Eastern Time Zone identifier to start/end times
+      f.write(f"DTSTART;TZID=America/New_York:{start_str}\n")
+      f.write(f"DTEND;TZID=America/New_York:{end_str}\n")
       f.write(f"SUMMARY:{ev['summary']}\n")
       f.write(
           f"DESCRIPTION:Auto-synced from Syracuse Indoor Sports Center"
@@ -123,10 +126,7 @@ def scrape_and_generate_ics():
       f.write("END:VEVENT\n")
 
     f.write("END:VCALENDAR\n")
-  print(
-      f"\nSuccessfully generated {ics_filename} with {len(unique_events)}"
-      " games."
-  )
+  print(f"Generated {ics_filename} with timezone definitions.")
 
 
 if __name__ == "__main__":
