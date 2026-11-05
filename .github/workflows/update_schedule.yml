@@ -1,0 +1,33 @@
+name: Update BOCA Soccer Schedule
+
+on:
+  schedule:
+    - cron: '0 8 * * *' # Runs automatically every day at 8:00 AM UTC
+  workflow_dispatch: # Allows you to trigger it manually anytime you want
+
+jobs:
+  update-calendar:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run scraper script
+        run: python scrape_boca.py
+
+      - name: Commit and push if file changed
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add boca_soccer_schedule.ics
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update BOCA soccer schedule" && git push)
