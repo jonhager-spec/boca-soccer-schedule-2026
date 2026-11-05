@@ -4,6 +4,7 @@ import io
 import re
 from bs4 import BeautifulSoup
 import requests
+from zoneinfo import ZoneInfo  # Built-in Python 3.9+ timezone support
 
 BASE_URL = "https://www.syracuseindoorsportscenter.com/schedule.html"
 
@@ -27,6 +28,8 @@ def scrape_and_generate_ics():
 
   events = []
   target_string = "BOCA"
+  ny_tz = ZoneInfo("America/New_York")
+  utc_tz = ZoneInfo("UTC")
 
   for s_id in sheet_ids:
     csv_url = f"https://docs.google.com/spreadsheets/d/{s_id}/export?format=csv"
@@ -67,15 +70,22 @@ def scrape_and_generate_ics():
             time_str = f"{time_match.group(1)}:{time_match.group(2)} {time_match.group(3).upper()}"
             time_obj = datetime.strptime(time_str, "%I:%M %p")
 
-            game_start = current_date.replace(
-                hour=time_obj.hour, minute=time_obj.minute
+            # Construct local New York datetime and convert to UTC explicitly
+            local_start = datetime(
+                current_date.year,
+                current_date.month,
+                current_date.day,
+                time_obj.hour,
+                time_obj.minute,
+                tzinfo=ny_tz,
             )
-            game_end = game_start + timedelta(hours=1)
+            utc_start = local_start.astimezone(utc_tz)
+            utc_end = utc_start + timedelta(hours=1)
 
             events.append({
                 "summary": row_text,
-                "start": game_start,
-                "end": game_end,
+                "start": utc_start,
+                "end": utc_end,
             })
     except Exception as e:
       print(f"Error processing sheet {s_id}: {e}")
@@ -89,35 +99,16 @@ def scrape_and_generate_ics():
   with open(ics_filename, "w", encoding="utf-8") as f:
     f.write("BEGIN:VCALENDAR\n")
     f.write("VERSION:2.0\n")
-    f.write("PRODID:-//Boca Soccer Timezone Fixed Scraper//EN\n")
-    # Define America/New_York timezone rules inside the ICS so Google maps local times perfectly
-    f.write("BEGIN:VTIMEZONE\n")
-    f.write("TZID:America/New_York\n")
-    f.write("BEGIN:STANDARD\n")
-    f.write("DTSTART:20071104T020000\n")
-    f.write("RRULE:FREQ=YEARLY;BYDAY=1SU;BYMONTH=11\n")
-    f.write("TZOFFSETFROM:-0400\n")
-    f.write("TZOFFSETTO:-0500\n")
-    f.write("TZNAME:EST\n")
-    f.write("END:STANDARD\n")
-    f.write("BEGIN:DAYLIGHT\n")
-    f.write("DTSTART:20070311T020000\n")
-    f.write("RRULE:FREQ=YEARLY;BYDAY=2SU;BYMONTH=3\n")
-    f.write("TZOFFSETFROM:-0500\n")
-    f.write("TZOFFSETTO:-0400\n")
-    f.write("TZNAME:EDT\n")
-    f.write("END:DAYLIGHT\n")
-    f.write("END:VTIMEZONE\n")
+    f.write("PRODID:-//Boca Soccer UTC Shifted Scraper//EN\n")
 
     for i, ev in enumerate(unique_events.values()):
-      start_str = ev["start"].strftime("%Y%m%dT%H%M%S")
-      end_str = ev["end"].strftime("%Y%m%dT%H%M%S")
+      start_str = ev["start"].strftime("%Y%m%dT%H%M%SZ")
+      end_str = ev["end"].strftime("%Y%m%dT%H%M%SZ")
       f.write("BEGIN:VEVENT\n")
-      f.write(f"UID:boca-tz-game-{i}-{start_str}@sisc\n")
-      f.write(f"DTSTAMP:{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}\n")
-      # Explicitly attach the Eastern Time Zone identifier to start/end times
-      f.write(f"DTSTART;TZID=America/New_York:{start_str}\n")
-      f.write(f"DTEND;TZID=America/New_York:{end_str}\n")
+      f.write(f"UID:boca-utc-game-{i}-{start_str}@sisc\n")
+      f.write(f"DTSTAMP:{datetime.now(utc_tz).strftime('%Y%m%dT%H%M%SZ')}\n")
+      f.write(f"DTSTART:{start_str}\n")
+      f.write(f"DTEND:{end_str}\n")
       f.write(f"SUMMARY:{ev['summary']}\n")
       f.write(
           f"DESCRIPTION:Auto-synced from Syracuse Indoor Sports Center"
@@ -126,7 +117,7 @@ def scrape_and_generate_ics():
       f.write("END:VEVENT\n")
 
     f.write("END:VCALENDAR\n")
-  print(f"Generated {ics_filename} with timezone definitions.")
+  print(f"Generated {ics_filename} with UTC-shifted times.")
 
 
 if __name__ == "__main__":
