@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
 import re
-from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 import requests
 
@@ -15,77 +14,62 @@ def scrape_and_generate_ics():
     return
 
   soup = BeautifulSoup(response.text, "html.parser")
-  links = {BASE_URL}
-  for a_tag in soup.find_all("a", href=True):
-    href = a_tag["href"]
-    if "schedule" in href.lower() or "standings" in href.lower():
-      links.add(urljoin(BASE_URL, href))
-
   events = []
   target_string = "BOCA"
 
-  for link in links:
-    try:
-      print(f"Checking: {link}")
-      res = requests.get(link, timeout=10)
-      if res.status_code != 200:
-        continue
-      page_soup = BeautifulSoup(res.text, "html.parser")
+  # We parse directly from the main schedule text where the actual youth blocks live
+  text_content = soup.get_text(separator="\n")
+  lines = text_content.split("\n")
 
-      # Walk through the text line by line, keeping track of the last seen valid date
-      text_content = page_soup.get_text(separator="\n")
-      lines = text_content.split("\n")
+  current_date = None
+  for line in lines:
+    line = line.strip()
+    if not line:
+      continue
 
-      current_date = None
-      for line in lines:
-        line = line.strip()
-        if not line:
+    # Look specifically for valid youth dates mentioned on the main schedule page (e.g. 10/24/26, 10/31/2026, 11/7/2026)
+    date_match = re.search(
+        r"\b(0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])[-/](\d{2,4})\b", line
+    )
+    if date_match:
+      date_str = date_match.group(0)
+      for fmt in ("%m/%d/%y", "%m-%d-%y", "%m/%d/%Y", "%m-%d-%Y"):
+        try:
+          parsed = datetime.strptime(date_str, fmt)
+          if parsed.year < 2000:
+            parsed = parsed.replace(year=parsed.year + 2000)
+          # Only accept 2026 youth schedule dates
+          if parsed.year == 2026:
+            current_date = parsed
+            break
+        except ValueError:
           continue
 
-        # Look for date headers in the text (e.g., 11/5/26, 10/31/2026, etc.)
-        date_match = re.search(
-            r"\b(0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])[-/](\d{2,4})\b", line
+    # Search for BOCA games under the active date context
+    if target_string.lower() in line.lower():
+      time_match = re.search(
+          r"\b(1[0-2]|0?[1-9]):([0-5][0-9])\s*(AM|PM|am|pm)\b", line
+      )
+      if time_match and current_date:
+        time_str = f"{time_match.group(1)}:{time_match.group(2)} {time_match.group(3).upper()}"
+        time_obj = datetime.strptime(time_str, "%I:%M %p")
+
+        game_start = current_date.replace(
+            hour=time_obj.hour, minute=time_obj.minute
         )
-        if date_match:
-          date_str = date_match.group(0)
-          for fmt in ("%m/%d/%y", "%m-%d-%y", "%m/%d/%Y", "%m-%d-%Y"):
-            try:
-              parsed = datetime.strptime(date_str, fmt)
-              # Handle 2-digit year conversion if needed
-              if parsed.year < 2000:
-                parsed = parsed.replace(year=parsed.year + 2000)
-              current_date = parsed
-              break
-            except ValueError:
-              continue
+        game_end = game_start + timedelta(hours=1)
 
-        # If we find BOCA and have a valid date context, extract the game
-        if target_string.lower() in line.lower():
-          time_match = re.search(
-              r"\b(1[0-2]|0?[1-9]):([0-5][0-9])\s*(AM|PM|am|pm)\b", line
-          )
-          if time_match and current_date:
-            time_str = f"{time_match.group(1)}:{time_match.group(2)} {time_match.group(3).upper()}"
-            time_obj = datetime.strptime(time_str, "%I:%M %p")
+        events.append({
+            "summary": line,
+            "start": game_start,
+            "end": game_end,
+        })
+        print(
+            f"  [FOUND YOUTH BOCA GAME] {line} ->"
+            f" {game_start.strftime('%Y-%m-%d %I:%M %p')}"
+        )
 
-            game_start = current_date.replace(
-                hour=time_obj.hour, minute=time_obj.minute
-            )
-            game_end = game_start + timedelta(hours=1)
-
-            events.append({
-                "summary": line,
-                "start": game_start,
-                "end": game_end,
-            })
-            print(
-                f"  [FOUND] {line} -> Date Assigned: {game_start.strftime('%Y-%m-%d %I:%M %p')}"
-            )
-
-    except Exception as e:
-      print(f"Error reading {link}: {e}")
-
-  # Deduplicate events based on exact summary and start time
+  # Deduplicate events
   unique_events = {}
   for ev in events:
     key = (ev["summary"], ev["start"])
@@ -107,12 +91,14 @@ def scrape_and_generate_ics():
       f.write(f"DTEND:{end_str}\n")
       f.write(f"SUMMARY:{ev['summary']}\n")
       f.write(
-          f"DESCRIPTION:Syracuse Indoor Sports Center - Boca Schedule\n"
+          f"DESCRIPTION:Syracuse Indoor Sports Center - Youth Soccer Schedule\n"
       )
       f.write("END:VEVENT\n")
 
     f.write("END:VCALENDAR\n")
-  print(f"Generated {ics_filename} with {len(unique_events)} unique events.")
+  print(
+      f"Generated {ics_filename} with {len(unique_events)} valid unique events."
+  )
 
 
 if __name__ == "__main__":
