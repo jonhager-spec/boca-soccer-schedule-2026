@@ -4,7 +4,7 @@ import io
 import re
 from bs4 import BeautifulSoup
 import requests
-from zoneinfo import ZoneInfo  # Built-in Python 3.9+ timezone support
+from zoneinfo import ZoneInfo
 
 BASE_URL = "https://www.syracuseindoorsportscenter.com/schedule.html"
 
