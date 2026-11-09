@@ -104,6 +104,7 @@ def scrape_and_generate_ics():
     f.write("BEGIN:VCALENDAR\n")
     f.write("VERSION:2.0\n")
     f.write("PRODID:-//Boca Soccer Clean Title Scraper//EN\n")
+    f.write("X-WR-CALNAME:BOCA Hopkins Rd")
 
     for i, ev in enumerate(unique_events.values()):
       start_str = ev["start"].strftime("%Y%m%dT%H%M%SZ")
