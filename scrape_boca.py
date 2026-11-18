@@ -82,9 +82,19 @@ def scrape_and_generate_ics():
             utc_start = local_start.astimezone(utc_tz)
             utc_end = utc_start + timedelta(hours=1)
 
-            # Clean up event title to start directly at 'BOCA'
-            boca_index = row_text.upper().find("BOCA")
-            clean_summary = row_text[boca_index:].strip() if boca_index != -1 else row_text
+            # Clean up event title by removing date and time, keeping both teams & field info
+            clean_summary = row_text
+            clean_summary = re.sub(
+                r"\b(0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])[-/](\d{2,4})\b",
+                "",
+                clean_summary,
+            )
+            clean_summary = re.sub(
+                r"\b(1[0-2]|0?[1-9]):([0-5][0-9])\s*(AM|PM|am|pm)\b",
+                "",
+                clean_summary,
+            )
+            clean_summary = " ".join(clean_summary.split())
 
             events.append({
                 "summary": clean_summary,
@@ -103,14 +113,14 @@ def scrape_and_generate_ics():
   with open(ics_filename, "w", encoding="utf-8") as f:
     f.write("BEGIN:VCALENDAR\n")
     f.write("VERSION:2.0\n")
-    f.write("PRODID:-//Boca Soccer Clean Title Scraper//EN\n")
+    f.write("PRODID:-//Boca Soccer Full Matchup Scraper//EN\n")
     f.write("X-WR-CALNAME:BOCA Hopkins Rd\n")
 
     for i, ev in enumerate(unique_events.values()):
       start_str = ev["start"].strftime("%Y%m%dT%H%M%SZ")
       end_str = ev["end"].strftime("%Y%m%dT%H%M%SZ")
       f.write("BEGIN:VEVENT\n")
-      f.write(f"UID:boca-clean-game-{i}-{start_str}@sisc\n")
+      f.write(f"UID:boca-full-game-{i}-{start_str}@sisc\n")
       f.write(f"DTSTAMP:{datetime.now(utc_tz).strftime('%Y%m%dT%H%M%SZ')}\n")
       f.write(f"DTSTART:{start_str}\n")
       f.write(f"DTEND:{end_str}\n")
@@ -122,7 +132,7 @@ def scrape_and_generate_ics():
       f.write("END:VEVENT\n")
 
     f.write("END:VCALENDAR\n")
-  print(f"Generated {ics_filename} with clean titles.")
+  print(f"Generated {ics_filename} with full matchup titles.")
 
 
 if __name__ == "__main__":
